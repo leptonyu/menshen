@@ -1,5 +1,5 @@
 name:                menshen
-version:             0.0.1
+version:             0.0.2
 synopsis:            Data Validation
 description:         Data Validation inspired by JSR305
 homepage:            https://github.com/leptonyu/menshen#readme
