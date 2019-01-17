@@ -5,14 +5,27 @@
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE TypeSynonymInstances  #-}
-
+-- |
+-- Module:      Data.Salak
+-- Copyright:   (c) 2019 Daniel YU
+-- License:     BSD3
+-- Maintainer:  Daniel YU <leptonyu@gmail.com>
+-- Stability:   experimental
+-- Portability: portable
+--
+-- Data Validation inspired by JSR305
+--
 module Data.Menshen(
+  -- * How to use this library
+  -- $use
+
+  -- * Definition
     HasValid(..)
   , Validator
-  , HasValidSize
-  , size
-  , notEmpty
-  , notBlank
+  , ValidationException(..)
+  , HasI18n(..)
+  -- * Validation Functions
+  , HasValidSize(..)
   , notNull
   , assertNull
   , assertTrue
@@ -27,10 +40,12 @@ module Data.Menshen(
   , maxDecimal
   , pattern
   , email
-  , (&)
+  -- * Validation Operations
+  , (?)
+  , valify
+  , (?:)
+  -- * Reexport Functions
   , (=~)
-  , ValidationException(..)
-  , HasI18n(..)
   ) where
 
 import           Data.Scientific
@@ -46,10 +61,21 @@ infixl 1 &
 x & f = f x
 #endif
 
+-- | apply record validation to the value
+infixl 5 ?
+(?) = (&)
 
+-- | lift value a to validation context and check if it is valid.
+--
+infixl 5 ?:
+(?:) :: HasValid m => a -> Validator a -> m a
+(?:) = valify
+
+-- | Plan for i18n translate, now just for english.
 class HasI18n a where
   toI18n :: a -> String
 
+-- | Validation Error Message
 data ValidationException
   = ShouldBeFalse
   | ShouldBeTrue
@@ -99,18 +125,20 @@ instance HasI18n ValidationException where
   toI18n (InvalidDigits i f)    = "numeric value out of bounds (<" ++ show i ++ " digits>.<" ++ show f ++ " digits> expected)"
   toI18n (InvalidPattern r)     = "must match " ++ r
 
+-- | Define how invalid infomation passed to upper layer.
 class Monad m => HasValid m where
   invalid  :: HasI18n a => a -> m b
   invalid = error . toI18n
 
-instance HasValid IO
-
 instance HasValid (Either String) where
   invalid = Left . toI18n
 
+-- | Validator, use to define detailed validation check.
 type Validator a = forall m. HasValid m => m a -> m a
 
+-- | Length checker bundle
 class HasValidSize a where
+  -- | Size validation
   size :: (Word64, Word64) -> Validator a
   size (x,y) = \ma -> do
     a <- ma
@@ -118,18 +146,21 @@ class HasValidSize a where
     if la < x || la > y
       then invalid $ InvalidSize x y
       else return a
+  -- | Assert not empty
   notEmpty :: Validator a
   notEmpty = \ma -> do
     a <- ma
     if getLength a == 0
       then invalid InvalidNotEmpty
       else return a
+  -- | Assert not blank
   notBlank :: Validator a
   notBlank = \ma -> do
     a <- ma
     if getLength a == 0
       then invalid InvalidNotBlank
       else return a
+  -- | calculate length from value
   getLength :: a -> Word64
   {-# MINIMAL getLength #-}
 
@@ -142,6 +173,7 @@ instance HasValidSize TL.Text where
 instance HasValidSize [a] where
   getLength = fromIntegral . length
 
+-- | Regular expression validation
 pattern :: RegexLike Regex a => String -> Validator a
 pattern p = \ma -> do
   a <- ma
@@ -151,12 +183,14 @@ pattern p = \ma -> do
 emailPattern :: String
 emailPattern = "^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}$"
 
+-- | Email validation
 email :: RegexLike Regex a => Validator a
 email = \ma -> do
   a <- ma
   if a =~ emailPattern then return a
     else invalid InvalidEmail
 
+-- | Positive validation
 positive :: (Eq a, Num a) => Validator a
 positive = \ma -> do
   a <- ma
@@ -164,6 +198,7 @@ positive = \ma -> do
     then return a
     else invalid InvalidPositive
 
+-- | Positive or zero validation
 positiveOrZero :: (Eq a, Num a) => Validator a
 positiveOrZero = \ma -> do
   a <- ma
@@ -171,6 +206,7 @@ positiveOrZero = \ma -> do
     then return a
     else invalid InvalidPositiveOrZero
 
+-- | Negative validation
 negative :: (Eq a, Num a) => Validator a
 negative = \ma -> do
   a <- ma
@@ -178,6 +214,7 @@ negative = \ma -> do
     then return a
     else invalid InvalidNegative
 
+-- | Negative or zero validation
 negativeOrZero :: (Eq a, Num a) => Validator a
 negativeOrZero = \ma -> do
   a <- ma
@@ -185,18 +222,21 @@ negativeOrZero = \ma -> do
     then return a
     else invalid InvalidNegativeOrZero
 
+-- | Assert true
 assertTrue :: Validator Bool
 assertTrue = \ma -> do
   a <- ma
   if a then return a
     else invalid ShouldBeTrue
 
+-- | Assert false
 assertFalse :: Validator Bool
 assertFalse = \ma -> do
   a <- ma
   if not a then return a
     else invalid ShouldBeFalse
 
+-- | Assert not null
 notNull :: Validator (Maybe a)
 notNull = \ma -> do
   a <- ma
@@ -204,6 +244,7 @@ notNull = \ma -> do
     Just _ -> return a
     _      -> invalid ShouldNotNull
 
+-- | Assert null
 assertNull :: Validator (Maybe a)
 assertNull = \ma -> do
   a <- ma
@@ -211,30 +252,77 @@ assertNull = \ma -> do
     Just _ -> invalid ShouldNull
     _      -> return a
 
-maxInt :: (Ord a, Integral a) => a -> Validator a
+-- | Maximum int validation
+maxInt :: Integral a => a -> Validator a
 maxInt m = \ma -> do
   a <- ma
   if a > m
     then invalid (InvalidMax $ toInteger m)
     else return a
 
-minInt :: (Ord a, Integral a) => a -> Validator a
+-- | Minimum int validation
+minInt :: Integral a => a -> Validator a
 minInt m = \ma -> do
   a <- ma
   if a < m
     then invalid (InvalidMin $ toInteger m)
     else return a
 
-maxDecimal :: (Ord a, RealFloat a) => a -> Validator a
+-- | Maximum decimal validation
+maxDecimal :: RealFloat a => a -> Validator a
 maxDecimal m = \ma -> do
   a <- ma
   if a > m
     then invalid (InvalidDecimalMax $ fromFloatDigits m)
     else return a
 
-minDecimal :: (Ord a, RealFloat a) => a -> Validator a
+-- | Minimum int validation
+minDecimal :: RealFloat a => a -> Validator a
 minDecimal m = \ma -> do
   a <- ma
   if a < m
     then invalid (InvalidDecimalMin $ fromFloatDigits m)
     else return a
+
+-- | lift value a to validation context and check if it is valid.
+valify :: HasValid m => a -> Validator a -> m a
+valify a f = return a ? f
+
+-- $use
+--
+-- This library is designed for validate haskell records, such as in configurations or web request parameters.
+--
+-- Usage:
+--
+-- > {-# LANGUAGE RecordWildCards #-}
+-- > module Main where
+-- > import Data.Menshen
+-- > data Body = Body
+-- >   { name :: String
+-- >   , age  :: Int
+-- >   } deriving Show
+-- >
+-- > valifyBody :: Validator Body
+-- > valifyBody = \ma -> do
+-- >   Body{..} <- ma
+-- >   Body
+-- >     <$> name ?: pattern "^[a-z]{3,6}$"
+-- >     <*> age  ?: minInt 1 . maxInt 150
+-- >
+-- > makeBody :: String -> Int -> Either String Body
+-- > makeBody name age = Body{..} ?: valifyBody
+-- >
+-- > main = do
+-- >   print $ makeBody "daniel" 15
+-- >
+--
+-- Useage in Record parsing process:
+--
+-- > instance HasValid Parser where
+-- >   invalid = fail . toI18n
+-- >
+-- > instance FromJSON Body where
+-- >   parseJSON = withObject "Body" $ \v -> Body
+-- >     <$> v .: "name" ? pattern "^[a-z]{3,6}$"
+-- >     <*> v .: "age"  ? minInt 1 . maxInt 150
+-- >

@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 06c81eb80414f486ca7ea81d1eae4d2fb856614b4503aa07890f9404e9dda98a
+-- hash: 8899e367732559bb8cbe2fc5e109b65a3d8d75f7f3abb404caffd690de0a2083
 
 name:           menshen
-version:        0.0.0
+version:        0.0.1
 synopsis:       Data Validation
 description:    Data Validation inspired by JSR305
 category:       Web
@@ -46,6 +46,7 @@ test-suite spec
   ghc-options: -Wall -fno-warn-orphans -fno-warn-missing-signatures
   build-depends:
       QuickCheck
+    , aeson
     , base >=4.7 && <5
     , hspec ==2.*
     , menshen

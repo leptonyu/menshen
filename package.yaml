@@ -1,5 +1,5 @@
 name:                menshen
-version:             0.0.0
+version:             0.0.1
 synopsis:            Data Validation
 description:         Data Validation inspired by JSR305
 homepage:            https://github.com/leptonyu/menshen#readme
@@ -33,3 +33,4 @@ tests:
       - hspec == 2.*
       - QuickCheck
       - menshen
+      - aeson
