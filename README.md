@@ -1,5 +1,6 @@
 # menshen
 
+[![Hackage](https://img.shields.io/badge/hackage-v0.0.0-orange.svg)](https://hackage.haskell.org/package/menshen)
 [![Build Status](https://travis-ci.org/leptonyu/menshen.svg?branch=master)](https://travis-ci.org/leptonyu/menshen)
 
 
