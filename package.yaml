@@ -1,0 +1,35 @@
+name:                menshen
+version:             0.0.0
+synopsis:            Data Validation
+description:         Data Validation inspired by JSR305
+homepage:            https://github.com/leptonyu/menshen#readme
+license:             BSD3
+author:              Daniel YU
+maintainer:          leptonyu@gmail.com
+copyright:           (c) Daniel YU
+category:            Web
+extra-source-files:
+- README.md
+
+ghc-options: -Wall -fno-warn-orphans -fno-warn-missing-signatures
+
+dependencies:
+  - base >= 4.7 && < 5
+  - text >= 1.2.3.1 && < 1.3
+  - scientific >= 0.3.6.2 && <0.4
+  - regex-tdfa >= 1.2.3.1 && <1.3
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - Data.Menshen
+
+tests:
+  spec:
+    main: Spec.hs
+    source-dirs:
+      - test
+    dependencies:
+      - hspec == 2.*
+      - QuickCheck
+      - menshen
