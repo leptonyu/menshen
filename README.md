@@ -1,6 +1,6 @@
 # menshen
 
-[![Hackage](https://img.shields.io/badge/hackage-v0.0.1-orange.svg)](https://hackage.haskell.org/package/menshen)
+[![Hackage](https://img.shields.io/hackage/v/menshen.svg)](https://hackage.haskell.org/package/menshen)
 [![Build Status](https://travis-ci.org/leptonyu/menshen.svg?branch=master)](https://travis-ci.org/leptonyu/menshen)
 
 
@@ -14,15 +14,13 @@ data Body = Body
   , age  :: Int
   } deriving Show
 
-valifyBody :: Validator Body
-valifyBody = \ma -> do
-  Body{..} <- ma
-  Body
-    <$> name ?: pattern "^[a-z]{3,6}$"
-    <*> age  ?: minInt 1 . maxInt 150
+verifyBody :: Validator Body
+verifyBody = vcvt $ Body{..} -> Body
+  <$> name ?: mark "name" . pattern "^[a-z]{3,6}$"
+  <*> age  ?: mark "age"  . minInt 1 . maxInt 150
 
 makeBody :: String -> Int -> Either String Body
-makeBody name age = Body{..} ?: valifyBody
+makeBody name age = Body{..} ?: verifyBody
 
 main = do
   print $ makeBody "daniel" 15

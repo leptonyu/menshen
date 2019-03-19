@@ -51,18 +51,16 @@ instance HasValid Parser where
 
 instance FromJSON Body where
   parseJSON = withObject "Body" $ \v -> Body
-    <$> v .: "name" ? pattern "^[a-z]{3,6}$"
-    <*> v .: "age"  ? minInt 1 . maxInt 150
+    <$> v .: "name" ? mark "name" . pattern "^[a-z]{3,6}$"
+    <*> v .: "age"  ? mark "age"  . minInt 1 . maxInt 150
 
-valifyBody :: Validator Body
-valifyBody = \ma -> do
-  Body{..} <- ma
-  Body
-    <$> name ?: pattern "^[a-z]{3,6}$"
-    <*> age  ?: minInt 1 . maxInt 150
+verifyBody :: Validator Body
+verifyBody = vcvt $ \Body{..} -> Body
+  <$> name ?: mark "name" . pattern "^[a-z]{3,6}$"
+  <*> age  ?: mark "age"  . minInt 1 . maxInt 150
 
 makeBody :: String -> Int -> Either String Body
-makeBody name age = Body{..} ?: valifyBody
+makeBody name age = Body{..} ?: verifyBody
 
 specProperty = do
   context "bool" $ do
@@ -112,7 +110,7 @@ specProperty = do
     it "notNull" $ do
       (notNullValue ? notNull)    `shouldBe`      notNullValue
       (notNullValue ? assertNull) `shouldSatisfy` isLeft
-  context "valify" $ do
+  context "verify" $ do
     it "makeBody" $ do
       makeBody "daniel"  5   `shouldSatisfy` isRight
       makeBody "daniel"  200 `shouldSatisfy` isLeft
