@@ -1,8 +1,10 @@
 {-# LANGUAGE CPP                   #-}
+{-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE TypeSynonymInstances  #-}
 -- |
@@ -24,6 +26,8 @@ module Data.Menshen(
   , Validator
   , ValidationException(..)
   , HasI18n(..)
+  , ValidatorErr(..)
+  , VerifyResult(..)
   -- * Validation Functions
   , HasValidSize(..)
   , notNull
@@ -42,19 +46,21 @@ module Data.Menshen(
   , email
   -- * Validation Operations
   , (?)
-  , valify
+  , verify
   , (?:)
+  , vcvt
   -- * Reexport Functions
   , (=~)
   ) where
 
+import           Control.Exception (Exception (..), SomeException)
 import           Data.Scientific
-import qualified Data.Text       as TS
-import qualified Data.Text.Lazy  as TL
+import qualified Data.Text         as TS
+import qualified Data.Text.Lazy    as TL
 import           Data.Word
 import           Text.Regex.TDFA
 #if __GLASGOW_HASKELL__ > 708
-import           Data.Function   ((&))
+import           Data.Function     ((&))
 #else
 infixl 1 &
 (&) :: a -> (a -> b) -> b
@@ -63,17 +69,23 @@ x & f = f x
 
 -- | apply record validation to the value
 infixl 5 ?
+(?) :: HasValid m => m a -> Validator a -> m a
 (?) = (&)
 
 -- | lift value a to validation context and check if it is valid.
 --
 infixl 5 ?:
 (?:) :: HasValid m => a -> Validator a -> m a
-(?:) = valify
+(?:) = verify
 
 -- | Plan for i18n translate, now just for english.
-class HasI18n a where
-  toI18n :: a -> String
+class Exception e => HasI18n e where
+  toI18n :: e -> String
+  toErr :: String -> e -> ValidatorErr
+  toErr field e =
+    let message   = toI18n e
+        exception = toException e
+    in ValidatorErr{..}
 
 -- | Validation Error Message
 data ValidationException
@@ -101,6 +113,8 @@ data ValidationException
   | InvalidPattern String
   deriving Show
 
+instance Exception ValidationException
+
 instance HasI18n ValidationException where
   toI18n ShouldBeTrue           = "must be true"
   toI18n ShouldBeFalse          = "must be false"
@@ -125,38 +139,70 @@ instance HasI18n ValidationException where
   toI18n (InvalidDigits i f)    = "numeric value out of bounds (<" ++ show i ++ " digits>.<" ++ show f ++ " digits> expected)"
   toI18n (InvalidPattern r)     = "must match " ++ r
 
+
+data ValidatorErr = ValidatorErr
+  { exception :: SomeException
+  , message   :: String
+  , field     :: String
+  } deriving Show
+
 -- | Define how invalid infomation passed to upper layer.
 class Monad m => HasValid m where
   invalid  :: HasI18n a => a -> m b
   invalid = error . toI18n
+  mark :: String -> m a -> m a
+  mark _ = id
 
 instance HasValid (Either String) where
   invalid = Left . toI18n
 
+data VerifyResult a = Invalid [ValidatorErr] | Valid a deriving (Show, Functor)
+
+instance Applicative VerifyResult where
+  pure = Valid
+  (Invalid a) <*> (Invalid b) = Invalid (a ++ b)
+  (Invalid a) <*> _ = Invalid a
+  _ <*> (Invalid b) = Invalid b
+  (Valid f) <*> (Valid b) = Valid (f b)
+
+instance Monad VerifyResult where
+  return = Valid
+  (Valid   a) >>= f = f a
+  (Invalid a) >>= _ = Invalid a
+
+instance HasValid VerifyResult where
+  invalid e = Invalid [toErr "" e]
+  mark name ma =
+    let go err = if null (field err) then err { field = name } else err
+    in case ma of
+        (Invalid x) -> Invalid $ go <$> x
+        v           -> v
+
 -- | Validator, use to define detailed validation check.
-type Validator a = forall m. HasValid m => m a -> m a
+type Validator a  = forall m. HasValid m => m a -> m a
+type Validator' a = forall m. HasValid m => a -> m a
+
+vcvt :: Validator' a -> Validator a
+vcvt f = (>>= f)
 
 -- | Length checker bundle
 class HasValidSize a where
   -- | Size validation
   size :: (Word64, Word64) -> Validator a
-  size (x,y) = \ma -> do
-    a <- ma
+  size (x,y) = vcvt $ \a -> do
     let la = getLength a
     if la < x || la > y
       then invalid $ InvalidSize x y
       else return a
   -- | Assert not empty
   notEmpty :: Validator a
-  notEmpty = \ma -> do
-    a <- ma
+  notEmpty = vcvt $ \a -> do
     if getLength a == 0
       then invalid InvalidNotEmpty
       else return a
   -- | Assert not blank
   notBlank :: Validator a
-  notBlank = \ma -> do
-    a <- ma
+  notBlank = vcvt $ \a -> do
     if getLength a == 0
       then invalid InvalidNotBlank
       else return a
@@ -175,8 +221,7 @@ instance HasValidSize [a] where
 
 -- | Regular expression validation
 pattern :: RegexLike Regex a => String -> Validator a
-pattern p = \ma -> do
-  a <- ma
+pattern p = vcvt $ \a -> do
   if a =~ p then return a
     else invalid $ InvalidPattern p
 
@@ -185,108 +230,95 @@ emailPattern = "^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}$"
 
 -- | Email validation
 email :: RegexLike Regex a => Validator a
-email = \ma -> do
-  a <- ma
+email = vcvt $ \a -> do
   if a =~ emailPattern then return a
     else invalid InvalidEmail
 
 -- | Positive validation
 positive :: (Eq a, Num a) => Validator a
-positive = \ma -> do
-  a <- ma
+positive = vcvt $ \a -> do
   if a /= 0 && abs a - a == 0
     then return a
     else invalid InvalidPositive
 
 -- | Positive or zero validation
 positiveOrZero :: (Eq a, Num a) => Validator a
-positiveOrZero = \ma -> do
-  a <- ma
+positiveOrZero = vcvt $ \a -> do
   if abs a - a == 0
     then return a
     else invalid InvalidPositiveOrZero
 
 -- | Negative validation
 negative :: (Eq a, Num a) => Validator a
-negative = \ma -> do
-  a <- ma
+negative = vcvt $ \a -> do
   if a /= 0 && abs a + a == 0
     then return a
     else invalid InvalidNegative
 
 -- | Negative or zero validation
 negativeOrZero :: (Eq a, Num a) => Validator a
-negativeOrZero = \ma -> do
-  a <- ma
+negativeOrZero = vcvt $ \a -> do
   if abs a + a == 0
     then return a
     else invalid InvalidNegativeOrZero
 
 -- | Assert true
 assertTrue :: Validator Bool
-assertTrue = \ma -> do
-  a <- ma
+assertTrue = vcvt $ \a -> do
   if a then return a
     else invalid ShouldBeTrue
 
 -- | Assert false
 assertFalse :: Validator Bool
-assertFalse = \ma -> do
-  a <- ma
+assertFalse = vcvt $ \a -> do
   if not a then return a
     else invalid ShouldBeFalse
 
 -- | Assert not null
 notNull :: Validator (Maybe a)
-notNull = \ma -> do
-  a <- ma
+notNull = vcvt $ \a -> do
   case a of
     Just _ -> return a
     _      -> invalid ShouldNotNull
 
 -- | Assert null
 assertNull :: Validator (Maybe a)
-assertNull = \ma -> do
-  a <- ma
+assertNull = vcvt $ \a -> do
   case a of
     Just _ -> invalid ShouldNull
     _      -> return a
 
 -- | Maximum int validation
 maxInt :: Integral a => a -> Validator a
-maxInt m = \ma -> do
-  a <- ma
+maxInt m = vcvt $ \a -> do
   if a > m
     then invalid (InvalidMax $ toInteger m)
     else return a
 
 -- | Minimum int validation
 minInt :: Integral a => a -> Validator a
-minInt m = \ma -> do
-  a <- ma
+minInt m = vcvt $ \a -> do
   if a < m
     then invalid (InvalidMin $ toInteger m)
     else return a
 
 -- | Maximum decimal validation
 maxDecimal :: RealFloat a => a -> Validator a
-maxDecimal m = \ma -> do
-  a <- ma
+maxDecimal m = vcvt $ \a -> do
   if a > m
     then invalid (InvalidDecimalMax $ fromFloatDigits m)
     else return a
 
 -- | Minimum int validation
 minDecimal :: RealFloat a => a -> Validator a
-minDecimal m = \ma -> do
-  a <- ma
+minDecimal m = vcvt $ \a -> do
   if a < m
     then invalid (InvalidDecimalMin $ fromFloatDigits m)
     else return a
 
 -- | lift value a to validation context and check if it is valid.
-valify :: HasValid m => a -> Validator a -> m a
-valify a f = return a ? f
+verify :: HasValid m => a -> Validator a -> m a
+verify a f = f (return a)
 
 -- $use
 --
@@ -302,15 +334,13 @@ valify a f = return a ? f
 -- >   , age  :: Int
 -- >   } deriving Show
 -- >
--- > valifyBody :: Validator Body
--- > valifyBody = \ma -> do
--- >   Body{..} <- ma
--- >   Body
--- >     <$> name ?: pattern "^[a-z]{3,6}$"
--- >     <*> age  ?: minInt 1 . maxInt 150
+-- > verifyBody :: Validator Body
+-- > verifyBody = vcvt $ \Body{..} -> Body
+-- >   <$> name ?: mark "name" . pattern "^[a-z]{3,6}$"
+-- >   <*> age  ?: mark "age"  . minInt 1 . maxInt 150
 -- >
 -- > makeBody :: String -> Int -> Either String Body
--- > makeBody name age = Body{..} ?: valifyBody
+-- > makeBody name age = Body{..} ?: verifyBody
 -- >
 -- > main = do
 -- >   print $ makeBody "daniel" 15
