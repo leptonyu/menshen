@@ -1,6 +1,8 @@
 # menshen
 
 [![Hackage](https://img.shields.io/hackage/v/menshen.svg)](https://hackage.haskell.org/package/menshen)
+[![stackage LTS package](http://stackage.org/package/menshen/badge/lts)](http://stackage.org/lts/package/menshen)
+[![stackage Nightly package](http://stackage.org/package/menshen/badge/nightly)](http://stackage.org/nightly/package/menshen)
 [![Build Status](https://travis-ci.org/leptonyu/menshen.svg?branch=master)](https://travis-ci.org/leptonyu/menshen)
 
 
