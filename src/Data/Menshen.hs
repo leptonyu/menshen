@@ -7,6 +7,7 @@
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE TypeSynonymInstances  #-}
+{-# LANGUAGE UndecidableInstances  #-}
 -- |
 -- Module:      Data.Salak
 -- Copyright:   (c) 2019 Daniel YU
@@ -53,14 +54,16 @@ module Data.Menshen(
   , (=~)
   ) where
 
-import           Control.Exception (Exception (..), SomeException)
+import           Control.Exception    (Exception (..), SomeException)
+import           Control.Monad.Catch
 import           Data.Scientific
-import qualified Data.Text         as TS
-import qualified Data.Text.Lazy    as TL
+import qualified Data.Text            as TS
+import qualified Data.Text.Lazy       as TL
 import           Data.Word
 import           Text.Regex.TDFA
+import           Text.Regex.TDFA.Text ()
 #if __GLASGOW_HASKELL__ > 708
-import           Data.Function     ((&))
+import           Data.Function        ((&))
 #else
 infixl 1 &
 (&) :: a -> (a -> b) -> b
@@ -146,6 +149,8 @@ data ValidatorErr = ValidatorErr
   , field     :: String
   } deriving Show
 
+instance Exception ValidatorErr
+
 -- | Define how invalid infomation passed to upper layer.
 class Monad m => HasValid m where
   invalid  :: HasI18n a => a -> m b
@@ -155,6 +160,9 @@ class Monad m => HasValid m where
 
 instance HasValid (Either String) where
   invalid = Left . toI18n
+
+instance {-# OVERLAPPABLE #-} (Monad m, MonadThrow m) => HasValid m where
+  invalid = throwM
 
 data VerifyResult a = Invalid [ValidatorErr] | Valid a deriving (Show, Functor)
 
